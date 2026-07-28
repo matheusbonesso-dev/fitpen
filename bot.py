@@ -3,6 +3,7 @@ from aiogram import Bot, Dispatcher
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from config import BOT_TOKEN
+from fitpen.handlers import dashboard
 from handlers import registrar
 from database import buscar_aplicacoes_pendentes_hoje
 
@@ -28,7 +29,7 @@ async def verificar_lembretes_dose():
 
 async def main():
     dp.include_router(registrar.router)
-
+    dp.include_router(dashboard.router)
     # Configura o agendador de tarefas
     scheduler = AsyncIOScheduler(timezone="America/Sao_Paulo")
     # Executa a verificação todos os dias às 09:00 da manhã
