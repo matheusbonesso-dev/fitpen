@@ -29,7 +29,11 @@ def carregar_dados_peso():
         return pd.DataFrame()
     
     df = pd.DataFrame(res.data)
-    df["created_at"] = pd.to_datetime(df["created_at"])
+    
+    # utc=True lida de forma segura com diferentes fusos/formatos
+    df["created_at"] = pd.to_datetime(df["created_at"], utc=True)
+    
+    # Converte para a data formatada local
     df["data_formatada"] = df["created_at"].dt.strftime("%d/%m/%Y %H:%M")
     return df
 
@@ -43,7 +47,7 @@ def carregar_dados_doses():
         return pd.DataFrame()
     
     df = pd.DataFrame(res.data)
-    df["data_aplicacao"] = pd.to_datetime(df["data_aplicacao"])
+    df["data_aplicacao"] = pd.to_datetime(df["data_aplicacao"], utc=True)
     return df
 
 # -------------------------------------------------------------
