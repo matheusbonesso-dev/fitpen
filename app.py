@@ -2,7 +2,9 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from supabase import create_client, Client
+from datetime import datetime
 from dateutil import parser
+
 # Configuração da página
 st.set_page_config(
     page_title="FitPen - Painel de Acompanhamento",
@@ -19,30 +21,41 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
+# Captura o ID do usuário diretamente da URL (?user_id=12345)
+query_params = st.query_params
+user_id_param = query_params.get("user_id", None)
+
+if user_id_param:
+    try:
+        user_id_param = int(user_id_param)
+    except ValueError:
+        user_id_param = None
+
 # -------------------------------------------------------------
-# DADOS DE PESO
+# DADOS DE PESO (Aceita o user_id como parâmetro)
 # -------------------------------------------------------------
 @st.cache_data(ttl=30)
-def carregar_dados_peso():
+def carregar_dados_peso(user_id: int = None):
     try:
-        res = supabase.table("registros_peso").select("*").order("created_at", desc=False).execute()
+        query = supabase.table("registros_peso").select("*").order("created_at", desc=False)
+        if user_id:
+            query = query.eq("user_id", user_id)
+            
+        res = query.execute()
         if not res.data:
             return pd.DataFrame()
         
         df = pd.DataFrame(res.data)
         
-        # Converte cada string individualmente usando o parser flexível do dateutil
         def converter_data(val):
             try:
                 dt = parser.parse(str(val))
-                return dt.replace(tzinfo=None) # Remove timezone
+                return dt.replace(tzinfo=None)
             except Exception:
                 return None
 
         df["created_at"] = df["created_at"].apply(converter_data)
         df = df.dropna(subset=["created_at"])
-        
-        # Garante o tipo datetime no pandas
         df["created_at"] = pd.to_datetime(df["created_at"])
         df["data_formatada"] = df["created_at"].dt.strftime("%d/%m/%Y %H:%M")
         return df
@@ -51,12 +64,16 @@ def carregar_dados_peso():
         return pd.DataFrame()
 
 # -------------------------------------------------------------
-# DADOS DE DOSES
+# DADOS DE DOSES (Aceita o user_id como parâmetro)
 # -------------------------------------------------------------
 @st.cache_data(ttl=30)
-def carregar_dados_doses():
+def carregar_dados_doses(user_id: int = None):
     try:
-        res = supabase.table("registros_dose").select("*").order("data_aplicacao", desc=False).execute()
+        query = supabase.table("registros_dose").select("*").order("data_aplicacao", desc=False)
+        if user_id:
+            query = query.eq("user_id", user_id)
+            
+        res = query.execute()
         if not res.data:
             return pd.DataFrame()
         
@@ -71,7 +88,6 @@ def carregar_dados_doses():
 
         df["data_aplicacao"] = df["data_aplicacao"].apply(converter_data)
         df = df.dropna(subset=["data_aplicacao"])
-        
         df["data_aplicacao"] = pd.to_datetime(df["data_aplicacao"])
         return df
     except Exception as e:
@@ -79,18 +95,24 @@ def carregar_dados_doses():
         return pd.DataFrame()
 
 # -------------------------------------------------------------
+# CARREGAMENTO DOS DADOS (Chama uma única vez)
+# -------------------------------------------------------------
+df_peso = carregar_dados_peso(user_id_param)
+df_dose = carregar_dados_doses(user_id_param)
+
+# -------------------------------------------------------------
 # DASHBOARD INTERFACE
 # -------------------------------------------------------------
 st.title("💉 FitPen — Dashboard de Evolução")
 st.markdown("Acompanhamento de peso e aplicações de tratamento.")
 
+if not user_id_param:
+    st.info("💡 Dica: Acesse o dashboard pelo link enviado no Telegram para ver apenas os seus dados personalizados.")
+
 # Botão de atualizar dados
 if st.button("🔄 Atualizar Dados"):
     st.cache_data.clear()
     st.rerun()
-
-df_peso = carregar_dados_peso()
-df_dose = carregar_dados_doses()
 
 # --- MÉTRICAS DE DESTAQUE ---
 col1, col2, col3, col4 = st.columns(4)
@@ -110,6 +132,9 @@ if not df_dose.empty:
     ultima_dose = df_dose.iloc[-1]["data_aplicacao"].strftime("%d/%m/%Y")
     col3.metric("Total de Aplicações", f"{total_doses}")
     col4.metric("Última Aplicação", ultima_dose)
+else:
+    col3.metric("Total de Aplicações", "0")
+    col4.metric("Última Aplicação", "-")
 
 st.markdown("---")
 
@@ -131,9 +156,12 @@ with tab1:
         st.plotly_chart(fig_peso, use_container_width=True)
         
         with st.expander("Ver Tabela de Registros de Peso"):
-            st.dataframe(df_peso[["data_formatada", "peso"]].rename(columns={"data_formatada": "Data", "peso": "Peso (kg)"}), use_container_width=True)
+            st.dataframe(
+                df_peso[["data_formatada", "peso"]].rename(columns={"data_formatada": "Data", "peso": "Peso (kg)"}), 
+                use_container_width=True
+            )
     else:
-        st.info("Nenhum registro de peso encontrado no banco de dados.")
+        st.info("Nenhum registro de peso encontrado para este usuário.")
 
 with tab2:
     st.subheader("Aplicações Registradas")
@@ -157,4 +185,4 @@ with tab2:
                 use_container_width=True
             )
     else:
-        st.info("Nenhuma aplicação de medicação registrada ainda.")
+        st.info("Nenhuma aplicação de medicação registrada para este usuário.")
