@@ -3,8 +3,7 @@ from aiogram import Bot, Dispatcher
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from config import BOT_TOKEN
-from fitpen.handlers import dashboard
-from handlers import registrar
+from handlers import registrar, dashboard
 from database import buscar_aplicacoes_pendentes_hoje
 
 bot = Bot(token=BOT_TOKEN)
