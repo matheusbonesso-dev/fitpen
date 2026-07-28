@@ -1,4 +1,7 @@
-streamlit
+aiogram
 supabase
+apscheduler
+streamlit
 pandas
 plotly
+python-dateutil
