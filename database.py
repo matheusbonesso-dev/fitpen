@@ -7,9 +7,15 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-def salvar_registro_peso(user_id: int, peso: float):
-    dados = {"user_id": user_id, "peso": peso}
-    return supabase.table("registros_peso").insert([dados]).execute()
+def salvar_registro_peso(user_id: int, peso: float, created_at: str = None):
+    dados = {
+        "user_id": user_id,
+        "peso": peso
+    }
+    if created_at:
+        dados["created_at"] = created_at
+        
+    supabase.table("registros_peso").insert(dados).execute()
 
 def definir_caneta_usuario(user_id: int, nome_caneta: str, mg_por_clique: float = 0.0134, intervalo_dias: int = 7):
     dados = {

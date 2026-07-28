@@ -20,6 +20,8 @@ router = Router()
 
 class RegistroPesoState(StatesGroup):
     aguardando_peso = State()
+    aguardando_confirmacao_data = State()
+    aguardando_data_customizada = State()
     
 class CanetaState(StatesGroup):
     aguardando_nome = State()
@@ -32,30 +34,118 @@ class RegistroDoseState(StatesGroup):
 
 
 # ==========================================
-# FLUXO 1: REGISTRAR PESO
+# FLUXO 1: REGISTRAR PESO (COM RETROATIVO)
 # ==========================================
 
 @router.message(Command("registrar_peso"))
 async def cmd_registrar_peso(message: types.Message, state: FSMContext):
     await state.clear()
-    await message.answer("Por favor, digite o seu peso atual em kg (ex: 75.5):")
+    await message.answer("Por favor, digite o seu peso atual em kg (ex: 75.5):", reply_markup=ReplyKeyboardRemove())
     await state.set_state(RegistroPesoState.aguardando_peso)
 
 @router.message(RegistroPesoState.aguardando_peso)
 async def processa_peso(message: types.Message, state: FSMContext):
     try:
         peso = float(message.text.replace(",", "."))
-        salvar_registro_peso(message.from_user.id, peso)
+        if peso < 30 or peso > 300:
+            await message.answer("⚠️ Por favor, informe um peso válido entre 30kg e 300kg.")
+            return
+
+        await state.update_data(peso=peso)
         
-        await message.answer(f"✅ Peso de **{peso} kg** registrado com sucesso!", parse_mode="Markdown")
-        await state.clear()
+        teclado_opcoes_data = ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="⚡ Agora (Data/Hora atual)")],
+                [KeyboardButton(text="📅 Outra Data/Hora")]
+            ],
+            resize_keyboard=True,
+            one_time_keyboard=True
+        )
+        
+        await message.answer(
+            f"⚖️ Peso de **{peso} kg** capturado!\n\n"
+            "Deseja registrar com o horário atual ou com uma data retroativa?",
+            parse_mode="Markdown",
+            reply_markup=teclado_opcoes_data
+        )
+        await state.set_state(RegistroPesoState.aguardando_confirmacao_data)
+        
     except ValueError:
         await message.answer("⚠️ Por favor, envie um número válido para o peso (ex: 70.5 ou 70).")
+
+@router.message(RegistroPesoState.aguardando_confirmacao_data)
+async def processa_opcao_data_peso(message: types.Message, state: FSMContext):
+    texto = message.text.strip().lower()
+    data = await state.get_data()
+    peso = data.get("peso")
+
+    if "agora" in texto or "atual" in texto:
+        dt_agora = datetime.now()
+        
+        # Salva no banco (se o database.py aceitar 'created_at', passe ele aqui)
+        try:
+            salvar_registro_peso(message.from_user.id, peso, created_at=dt_agora.isoformat())
+        except TypeError:
+            salvar_registro_peso(message.from_user.id, peso)
+
+        await message.answer(
+            f"✅ Peso de **{peso} kg** registrado com sucesso em **{dt_agora.strftime('%d/%m/%Y às %H:%M')}**!",
+            parse_mode="Markdown",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        await state.clear()
+        
+    elif "outra" in texto or "data" in texto:
+        await message.answer(
+            "📅 **Digite a data e hora do registro:**\n\n"
+            "Formatos aceitos:\n"
+            "• `DD/MM/AAAA` (ex: `15/04/2026`)\n"
+            "• `DD/MM/AAAA HH:MM` (ex: `15/04/2026 14:30`)",
+            parse_mode="Markdown",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        await state.set_state(RegistroPesoState.aguardando_data_customizada)
+    else:
+        await message.answer("Por favor, selecione uma das opções do teclado: 'Agora' ou 'Outra Data/Hora'.")
+
+@router.message(RegistroPesoState.aguardando_data_customizada)
+async def processa_data_customizada_peso(message: types.Message, state: FSMContext):
+    texto = message.text.strip()
+    dt_objeto = None
+    
+    # Tenta converter com hora
+    try:
+        dt_objeto = datetime.strptime(texto, "%d/%m/%Y %H:%M")
+    except ValueError:
+        # Tenta converter apenas data (assume 09:00h se não informou hora)
+        try:
+            dt_objeto = datetime.strptime(texto, "%d/%m/%Y").replace(hour=9, minute=0)
+        except ValueError:
+            await message.answer("⚠️ Formato de data inválido. Digite no formato **DD/MM/AAAA** ou **DD/MM/AAAA HH:MM**.")
+            return
+
+    data = await state.get_data()
+    peso = data.get("peso")
+    
+    # Salva no Supabase enviando a data customizada em formato ISO
+    try:
+        salvar_registro_peso(message.from_user.id, peso, created_at=dt_objeto.isoformat())
+    except TypeError:
+        # Fallback caso a sua função no database.py ainda não aceite criacao customizada
+        salvar_registro_peso(message.from_user.id, peso)
+
+    data_formatada = dt_objeto.strftime("%d/%m/%Y às %H:%M")
+    await message.answer(
+        f"✅ Peso de **{peso} kg** registrado com sucesso para **{data_formatada}**!",
+        parse_mode="Markdown"
+    )
+    await state.clear()
 
 
 # ==========================================
 # FLUXO 2: DEFINIR A CANETA DO USUÁRIO
 # ==========================================
+
 @router.message(Command("definir_caneta"))
 async def cmd_definir_caneta(message: types.Message, state: FSMContext):
     await state.clear()
@@ -104,7 +194,6 @@ async def processa_frequencia_caneta(message: types.Message, state: FSMContext):
     elif "diaria" in texto or "1 dia" in texto:
         intervalo = 1
     else:
-        # Se digitou um numero customizado
         try:
             intervalo = int(''.join(filter(str.isdigit, texto)))
         except ValueError:
@@ -124,6 +213,7 @@ async def processa_frequencia_caneta(message: types.Message, state: FSMContext):
         reply_markup=ReplyKeyboardRemove()
     )
     await state.clear()
+
 
 # ==========================================
 # FLUXO 3: REGISTRO DE DOSE (MG OU CLIQUES)
