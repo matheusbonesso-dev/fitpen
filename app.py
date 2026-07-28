@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from supabase import create_client, Client
-
+from dateutil import parser
 # Configuração da página
 st.set_page_config(
     page_title="FitPen - Painel de Acompanhamento",
@@ -22,33 +22,61 @@ supabase = init_supabase()
 # -------------------------------------------------------------
 # DADOS DE PESO
 # -------------------------------------------------------------
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=30)
 def carregar_dados_peso():
-    res = supabase.table("registros_peso").select("*").order("created_at", desc=False).execute()
-    if not res.data:
+    try:
+        res = supabase.table("registros_peso").select("*").order("created_at", desc=False).execute()
+        if not res.data:
+            return pd.DataFrame()
+        
+        df = pd.DataFrame(res.data)
+        
+        # Converte cada string individualmente usando o parser flexível do dateutil
+        def converter_data(val):
+            try:
+                dt = parser.parse(str(val))
+                return dt.replace(tzinfo=None) # Remove timezone
+            except Exception:
+                return None
+
+        df["created_at"] = df["created_at"].apply(converter_data)
+        df = df.dropna(subset=["created_at"])
+        
+        # Garante o tipo datetime no pandas
+        df["created_at"] = pd.to_datetime(df["created_at"])
+        df["data_formatada"] = df["created_at"].dt.strftime("%d/%m/%Y %H:%M")
+        return df
+    except Exception as e:
+        st.error(f"Erro ao carregar dados de peso: {e}")
         return pd.DataFrame()
-    
-    df = pd.DataFrame(res.data)
-    
-    # utc=True lida de forma segura com diferentes fusos/formatos
-    df["created_at"] = pd.to_datetime(df["created_at"], utc=True)
-    
-    # Converte para a data formatada local
-    df["data_formatada"] = df["created_at"].dt.strftime("%d/%m/%Y %H:%M")
-    return df
 
 # -------------------------------------------------------------
 # DADOS DE DOSES
 # -------------------------------------------------------------
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=30)
 def carregar_dados_doses():
-    res = supabase.table("registros_dose").select("*").order("data_aplicacao", desc=False).execute()
-    if not res.data:
+    try:
+        res = supabase.table("registros_dose").select("*").order("data_aplicacao", desc=False).execute()
+        if not res.data:
+            return pd.DataFrame()
+        
+        df = pd.DataFrame(res.data)
+        
+        def converter_data(val):
+            try:
+                dt = parser.parse(str(val))
+                return dt.replace(tzinfo=None)
+            except Exception:
+                return None
+
+        df["data_aplicacao"] = df["data_aplicacao"].apply(converter_data)
+        df = df.dropna(subset=["data_aplicacao"])
+        
+        df["data_aplicacao"] = pd.to_datetime(df["data_aplicacao"])
+        return df
+    except Exception as e:
+        st.error(f"Erro ao carregar dados de doses: {e}")
         return pd.DataFrame()
-    
-    df = pd.DataFrame(res.data)
-    df["data_aplicacao"] = pd.to_datetime(df["data_aplicacao"], utc=True)
-    return df
 
 # -------------------------------------------------------------
 # DASHBOARD INTERFACE
